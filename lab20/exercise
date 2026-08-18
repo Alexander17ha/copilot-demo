@@ -1,76 +1,183 @@
-// npm install --global mocha
-// run this test file: mocha test.js
+const http = require("http");
+const { URL } = require("url");
+const fs = require("fs");
+const path = require("path");
+const axios = require("axios");
 
-const assert = require('assert');
-const http = require('http');
-const server = require('./nodeserver');
+const server = http.createServer(async (req, res) => {
+	const requestUrl = new URL(req.url, "http://localhost:3000");
+	const pathname = requestUrl.pathname.toLowerCase();
+	res.setHeader("Content-Type", "text/plain");
 
-describe('Node Server', () => {
+	if (pathname === "/get") {
+		const key = requestUrl.searchParams.get("key");
+		res.end(key === null ? "key not passed" : `hello ${key}`);
+	}
 
-	it('should return "key not passed" if key is not passed', (done) => {
-		http.get('http://localhost:3000/get', (res) => {
-			let data = '';
-			res.on('data', (chunk) => { data += chunk; });
-			res.on('end', () => {
-				assert.equal(data, 'key not passed');
-				done();
+	else if (pathname === "/daysbetweendates") {
+		const date1 = new Date(requestUrl.searchParams.get("date1"));
+		const date2 = new Date(requestUrl.searchParams.get("date2"));
+		if (Number.isNaN(date1.getTime()) || Number.isNaN(date2.getTime())) {
+			res.statusCode = 400;
+			res.end("invalid dates");
+		} else {
+			const millisecondsPerDay = 24 * 60 * 60 * 1000;
+			const days = Math.floor(Math.abs(date2 - date1) / millisecondsPerDay);
+			res.end(days + " days");
+		}
+	}
+
+	else if (pathname === "/validatephonenumber") {
+		const phoneNumber = requestUrl.searchParams.get("phoneNumber");
+		const spanishPhoneRegex = /^(\+34|0034|34)?[ -]*(6|7)[ -]*([0-9][ -]*){8}$/;
+		res.end(spanishPhoneRegex.test(phoneNumber) ? "valid" : "invalid");
+	}
+
+	else if (pathname === "/validatespanishdni") {
+		const dni = requestUrl.searchParams.get("dni");
+		const dniLetter = dni.slice(-1);
+		const dniNumber = dni.slice(0, -1);
+		const controlLetters = "TRWAGMYFPDXBNJZSQVHLCKE";
+		const calculatedLetter = controlLetters[dniNumber % 23];
+		res.end(dniLetter === calculatedLetter ? "valid" : "invalid");
+	}
+
+	else if (pathname === "/returncolorcode") {
+		const color = requestUrl.searchParams.get("color");
+		if (color === null) {
+			res.end("color not passed");
+		} else {
+			const colors = JSON.parse(fs.readFileSync(path.join(__dirname, "colors.json"), "utf8"));
+			const matchingColor = colors.find(item => item.color.toLowerCase() === color.toLowerCase());
+			res.end(matchingColor ? matchingColor.code.hex : "color not found");
+		}
+	}
+
+	else if (pathname === "/tellmeajoke") {
+		try {
+			const response = await axios.get("https://official-joke-api.appspot.com/random_joke");
+			res.end(`${response.data.setup} ${response.data.punchline}`);
+		} catch (error) {
+			console.log(error);
+			res.statusCode = 500;
+			res.end("could not fetch joke");
+		}
+	}
+
+	else if (pathname === "/moviesbydirector") {
+		const director = requestUrl.searchParams.get("director");
+		if (!director) {
+			res.statusCode = 400;
+			res.end("director not passed");
+		} else if (!process.env.OMDB_API_KEY) {
+			res.statusCode = 500;
+			res.end("movie service is not configured");
+		} else {
+			try {
+				const searchResponse = await axios.get("http://www.omdbapi.com/", {
+					params: { apikey: process.env.OMDB_API_KEY, s: director, type: "movie" }
+				});
+				const movies = searchResponse.data.Response === "True" ? searchResponse.data.Search : [];
+				const titles = movies.map(movie => movie.Title);
+				res.end(titles.join(", "));
+			} catch (error) {
+				console.log(error);
+				res.statusCode = 500;
+				res.end("could not fetch movies");
+			}
+		}
+	}
+
+	else if (pathname === "/parseurl") {
+		const urlToParse = requestUrl.searchParams.get("someurl");
+		if (!urlToParse) {
+			res.statusCode = 400;
+			res.end("url not passed");
+		} else {
+			try {
+				const parsedUrl = new URL(urlToParse);
+				res.setHeader("Content-Type", "application/json");
+				res.end(JSON.stringify({
+					protocol: parsedUrl.protocol,
+					host: parsedUrl.host,
+					pathname: parsedUrl.pathname,
+					search: parsedUrl.search,
+					hash: parsedUrl.hash
+				}));
+			} catch (error) {
+				res.statusCode = 400;
+				res.end("invalid url");
+			}
+		}
+	}
+
+	else if (pathname === "/getfulltextfile") {
+		try {
+			const matchingLines = fs.readFileSync(path.join(__dirname, "sample.txt"), "utf8")
+				.split(/\r?\n/)
+				.filter(line => line.includes("Fusce"));
+			res.end(matchingLines.join("\n"));
+		} catch (error) {
+			res.statusCode = 404;
+			res.end("file not found");
+		}
+	}
+
+	else if (pathname === "/getlinebylinefromttextfile") {
+		try {
+			const matchingLines = await new Promise((resolve, reject) => {
+				const lines = [];
+				const fileStream = fs.createReadStream(path.join(__dirname, "sample.txt"));
+				const lineReader = require("readline").createInterface({ input: fileStream });
+				lineReader.on("line", line => {
+					if (line.includes("Fusce")) {
+						lines.push(line);
+					}
+				});
+				lineReader.on("close", () => resolve(lines));
+				fileStream.on("error", reject);
 			});
-		});
-	});
+			res.end(matchingLines.join("\n"));
+		} catch (error) {
+			res.statusCode = 404;
+			res.end("file not found");
+		}
+	}
 
-	it('should return "hello world" if key is world', (done) => {
-		http.get('http://localhost:3000/get?key=world', (res) => {
-			let data = '';
-			res.on('data', (chunk) => { data += chunk; });
-			res.on('end', () => {
-				assert.equal(data, 'hello world');
-				done();
-			});
-		});
-	});
+	else if (pathname === "/calculatememoryconsumption") {
+		const memory = process.memoryUsage().heapUsed / 1024 / 1024 / 1024;
+		res.end(memory.toFixed(2) + " GB");
+	}
 
-	it('should return "valid" if phoneNumber is valid', (done) => {
-		http.get('http://localhost:3000/Validatephonenumber?phoneNumber=34666666666', (res) => {
-			let data = '';
-			res.on('data', (chunk) => { data += chunk; });
-			res.on('end', () => {
-				assert.equal(data, 'valid');
-				done();
-			});
-		});
-	});
+	else if (pathname === "/randomeuropeancountry") {
+		const countries = [
+			{ country: "Italy", iso: "IT" },
+			{ country: "France", iso: "FR" },
+			{ country: "Spain", iso: "ES" },
+			{ country: "Germany", iso: "DE" },
+			{ country: "United Kingdom", iso: "GB" },
+			{ country: "Greece", iso: "GR" },
+			{ country: "Portugal", iso: "PT" },
+			{ country: "Netherlands", iso: "NL" },
+			{ country: "Belgium", iso: "BE" },
+			{ country: "Sweden", iso: "SE" },
+			{ country: "Norway", iso: "NO" },
+			{ country: "Ireland", iso: "IE" },
+			{ country: "Austria", iso: "AT" },
+			{ country: "Switzerland", iso: "CH" },
+			{ country: "Poland", iso: "PL" }
+		];
+		const randomCountry = countries[Math.floor(Math.random() * countries.length)];
+		res.end(randomCountry.country + " " + randomCountry.iso);
+	}
 
-	it('should return "valid" if spanish DNI 86471508H is valid', (done) => {
-		http.get('http://localhost:3000/ValidateSpanishDNI?dni=86471508H', (res) => {
-			let data = '';
-			res.on('data', (chunk) => { data += chunk; });
-			res.on('end', () => {
-				assert.equal(data, 'valid');
-				done();
-			});
-		});
-	});
-
-	it('should return "#FF0000" if color is red', (done) => {
-		http.get('http://localhost:3000/ReturnColorCode?color=red', (res) => {
-			let data = '';
-			res.on('data', (chunk) => { data += chunk; });
-			res.on('end', () => {
-				assert.equal(data, '#FF0000');
-				done();
-			});
-		});
-	});
-
-	it('should return "1 days" if dates are 2020-01-01 and 2020-01-02', (done) => {
-		http.get('http://localhost:3000/DaysBetweenDates?date1=2020-01-01&date2=2020-01-02', (res) => {
-			let data = '';
-			res.on('data', (chunk) => { data += chunk; });
-			res.on('end', () => {
-				assert.equal(data, '1 days');
-				done();
-			});
-		});
-	});
-
+	else {
+		res.end("method not supported");
+	}
 });
+
+server.listen(3000, () => {
+	console.log("server is listening on port 3000");
+});
+
+module.exports = server;
