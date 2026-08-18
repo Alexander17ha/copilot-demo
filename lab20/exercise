@@ -1,15 +1,22 @@
 const http = require("http");
 const { URL } = require("url");
+
 const server = http.createServer((req, res) => {
 	const requestUrl = new URL(req.url, "http://localhost:3000");
+	const pathname = requestUrl.pathname.toLowerCase();
 	res.setHeader("Content-Type", "text/plain");
-	if (requestUrl.pathname.toLowerCase() !== "/get") {
-		res.end("method not supported");
-		return;
+
+	if (pathname === "/get") {
+		const key = requestUrl.searchParams.get("key");
+		res.end(key === null ? "key not passed" : `hello ${key}`);
 	}
-	const key = requestUrl.searchParams.get("key");
-	res.end(key === null ? "key not passed" : `hello ${key}`);
+	// aquí vamos a ir agregando los else if de cada endpoint
+
+	else {
+		res.end("method not supported");
+	}
 });
+
 server.listen(3000, () => {
 	console.log("server is listening on port 3000");
 });
