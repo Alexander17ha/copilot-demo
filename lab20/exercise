@@ -1,0 +1,21 @@
+const http = require("http");
+const { URL } = require("url");
+
+const server = http.createServer((req, res) => {
+	const requestUrl = new URL(req.url, "http://localhost:3000");
+
+	res.setHeader("Content-Type", "text/plain");
+
+	if (requestUrl.pathname !== "/get") {
+		res.end("method not supported");
+		return;
+	}
+
+	const key = requestUrl.searchParams.get("key");
+	res.end(key === null ? "key not passed" : `hello${key}`);
+});
+
+server.listen(3000, () => {
+	console.log("server is listening on port 3000");
+});
+
