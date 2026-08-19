@@ -1,121 +1,110 @@
-using System.Text.RegularExpressions;
-using System.Text.Json;
+namespace IntegrationTests;
 
-var builder = WebApplication.CreateBuilder(args);
-
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
-
-var app = builder.Build();
-
-if (app.Environment.IsDevelopment())
+public class IntegrationTests : IClassFixture<TestWebApplicationFactory<Program>>
 {
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
+    private readonly HttpClient _client;
 
-app.UseHttpsRedirection();
-
-// ADD NEW ENDPOINTS HERE
-
-// Hello World
-app.MapGet("/", () => "Hello World!");
-
-// Days between two dates
-app.MapGet("/DaysBetweenDates", (DateTime date1, DateTime date2) => (date2 - date1).Days.ToString());
-
-// Validate phone number (Spanish format, e.g. +34666777888)
-app.MapGet("/validatephonenumber", (string phonenumber) =>
-    Regex.IsMatch(phonenumber, @"^(\+[0-9]{9})$").ToString());
-
-// Validate Spanish DNI
-app.MapGet("/validatespanishdni", (string dni) =>
-{
-    var valid = false;
-    if (dni.Length == 9 && int.TryParse(dni.Substring(0, 8), out int number))
+    public IntegrationTests(TestWebApplicationFactory<Program> factory)
     {
-        var letters = "TRWAGMYFPDXBNJZSQVHLCKE";
-        var letter = letters[number % 23];
-        valid = dni.EndsWith(letter.ToString());
+        _client = factory.CreateClient();
     }
-    return valid ? "valid" : "invalid";
-});
 
-// Return color hex code from colors.json
-app.MapGet("/color", (string color) =>
-{
-    var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-    var colors = JsonSerializer.Deserialize<Color[]>(File.ReadAllText("colors.json"), options);
-    return colors.First(c => c.Name == color).Code.HEX;
-});
-
-// Tell me a joke
-app.MapGet("/tellmeajoke", async () =>
-{
-    var client = new HttpClient();
-    var response = await client.GetAsync("https://official-joke-api.appspot.com/jokes/random");
-    var joke = await response.Content.ReadAsStringAsync();
-    return joke;
-});
-
-// Parse URL and return host
-app.MapGet("/parseurl", (string someurl) =>
-{
-    var uri = new Uri(someurl);
-    return uri.Host;
-});
-
-// List files in current directory
-app.MapGet("/listfiles", () =>
-{
-    var currentDirectory = Directory.GetCurrentDirectory();
-    var files = Directory.GetFiles(currentDirectory);
-    return files;
-});
-
-// Calculate memory consumption in GB
-app.MapGet("/calculatememoryconsumption", () =>
-{
-    var process = System.Diagnostics.Process.GetCurrentProcess();
-    var memoryUsage = process.WorkingSet64 / (1024.0 * 1024 * 1024);
-    return Math.Round(memoryUsage, 2);
-});
-
-// Random European country
-app.MapGet("/randomeuropeancountry", () =>
-{
-    var europeanCountries = new Dictionary<string, string>
+    [Fact]
+    public async Task Get_ReturnsHelloWorld()
     {
-        { "Albania", "AL" }, { "Austria", "AT" }, { "Belgium", "BE" },
-        { "Bulgaria", "BG" }, { "Croatia", "HR" }, { "Denmark", "DK" },
-        { "Estonia", "EE" }, { "Finland", "FI" }, { "France", "FR" },
-        { "Germany", "DE" }, { "Greece", "GR" }, { "Hungary", "HU" },
-        { "Ireland", "IE" }, { "Italy", "IT" }, { "Latvia", "LV" },
-        { "Lithuania", "LT" }, { "Luxembourg", "LU" }, { "Malta", "MT" },
-        { "Netherlands", "NL" }, { "Poland", "PL" }, { "Portugal", "PT" },
-        { "Romania", "RO" }, { "Slovakia", "SK" }, { "Slovenia", "SI" },
-        { "Spain", "ES" }, { "Sweden", "SE" }
-    };
-    var random = new Random();
-    var index = random.Next(europeanCountries.Count);
-    var country = europeanCountries.ElementAt(index);
-    return $"{country.Key} ({country.Value})";
-});
+        var response = await _client.GetAsync("/");
+        response.EnsureSuccessStatusCode();
+        var content = await response.Content.ReadAsStringAsync();
+        Assert.Equal("Hello World!", content);
+    }
 
-app.Run();
+    [Fact]
+    public async Task Get_DaysBetweenDates_ReturnsDays()
+    {
+        var response = await _client.GetAsync("/DaysBetweenDates?date1=2024-01-01&date2=2024-01-10");
+        response.EnsureSuccessStatusCode();
+        var content = await response.Content.ReadAsStringAsync();
+        Assert.Equal("9", content);
+    }
 
-// Needed to access this type from the MinimalAPI.Tests project.
-public partial class Program { }
+    [Fact]
+    public async Task Get_ValidatePhoneNumber_ReturnsValid()
+    {
+        var response = await _client.GetAsync("/validatephonenumber?phonenumber=%2B123456789");
+        response.EnsureSuccessStatusCode();
+        var content = await response.Content.ReadAsStringAsync();
+        Assert.Equal("True", content);
+    }
 
-// Classes for colors.json
-public class Color
-{
-    public string Name { get; set; }
-    public Code Code { get; set; }
-}
+    [Fact]
+    public async Task Get_ValidatePhoneNumber_ReturnsInvalid()
+    {
+        var response = await _client.GetAsync("/validatephonenumber?phonenumber=123456789");
+        response.EnsureSuccessStatusCode();
+        var content = await response.Content.ReadAsStringAsync();
+        Assert.Equal("False", content);
+    }
 
-public class Code
-{
-    public string HEX { get; set; }
-    public int[] RGBA { get; set; }
+    [Fact]
+    public async Task Get_ValidateSpanishDni_ReturnsValid()
+    {
+        var response = await _client.GetAsync("/validatespanishdni?dni=12345678Z");
+        response.EnsureSuccessStatusCode();
+        var content = await response.Content.ReadAsStringAsync();
+        Assert.Equal("valid", content);
+    }
+
+    [Fact]
+    public async Task Get_Color_ReturnsHexCode()
+    {
+        var response = await _client.GetAsync("/color?color=red");
+        response.EnsureSuccessStatusCode();
+        var content = await response.Content.ReadAsStringAsync();
+        Assert.Equal("#FF0000", content);
+    }
+
+    [Fact]
+    public async Task Get_TellMeAJoke_ReturnsJoke()
+    {
+        var response = await _client.GetAsync("/tellmeajoke");
+        response.EnsureSuccessStatusCode();
+        var content = await response.Content.ReadAsStringAsync();
+        Assert.False(string.IsNullOrEmpty(content));
+    }
+
+    [Fact]
+    public async Task Get_ParseUrl_ReturnsHost()
+    {
+        var response = await _client.GetAsync("/parseurl?someurl=https://www.example.com");
+        response.EnsureSuccessStatusCode();
+        var content = await response.Content.ReadAsStringAsync();
+        Assert.Equal("www.example.com", content);
+    }
+
+    [Fact]
+    public async Task Get_ListFiles_ReturnsFiles()
+    {
+        var response = await _client.GetAsync("/listfiles");
+        response.EnsureSuccessStatusCode();
+        var content = await response.Content.ReadAsStringAsync();
+        Assert.False(string.IsNullOrEmpty(content));
+    }
+
+    [Fact]
+    public async Task Get_CalculateMemoryConsumption_ReturnsMemoryUsage()
+    {
+        var response = await _client.GetAsync("/calculatememoryconsumption");
+        response.EnsureSuccessStatusCode();
+        var content = await response.Content.ReadAsStringAsync();
+        Assert.False(string.IsNullOrEmpty(content));
+    }
+
+    [Fact]
+    public async Task Get_RandomEuropeanCountry_ReturnsCountry()
+    {
+        var response = await _client.GetAsync("/randomeuropeancountry");
+        response.EnsureSuccessStatusCode();
+        var content = await response.Content.ReadAsStringAsync();
+        Assert.False(string.IsNullOrEmpty(content));
+    }
 }
